@@ -690,39 +690,73 @@ async function renderHome() {
       </div>
     </div>`}
     <div id="home-timeline"><div class="spinner">読み込み中...</div></div>
+    <div id="timeline-sentinel" style="height:1px"></div>
   `;
-  await loadTimeline();
+  timelinePage = 0;
+  timelineAllLoaded = false;
+  await loadTimeline(true);
+  setupTimelineScroll();
 }
 
-async function loadTimeline() {
+let timelinePage = 0;
+let timelineAllLoaded = false;
+let timelineLoading = false;
+const TIMELINE_PAGE_SIZE = 20;
+
+async function loadTimeline(reset = false) {
+  if (timelineLoading || timelineAllLoaded) return;
+  timelineLoading = true;
   const el = document.getElementById('home-timeline');
-  if (!el) return;
-  let query = db.from('posts').select('*, user:users(id,display_name,avatar_url,is_verified)').order('created_at', { ascending: false }).limit(50);
-  if (currentUser) {
-    // フォロー中 + 自分の投稿
-    const { data: follows } = await db.from('follows').select('following_id').eq('follower_id', currentUser.id);
-    const ids = [(follows || []).map(f => f.following_id), currentUser.id].flat();
-    if (ids.length > 1) query = query.in('user_id', ids);
-    else query = query.eq('user_id', currentUser.id);
+  if (!el) { timelineLoading = false; return; }
+  if (reset) { el.innerHTML = '<div class="spinner">読み込み中...</div>'; timelinePage = 0; timelineAllLoaded = false; }
+
+  const from = timelinePage * TIMELINE_PAGE_SIZE;
+  const to = from + TIMELINE_PAGE_SIZE - 1;
+  const { data: posts } = await db.from('posts')
+    .select('*, user:users(id,display_name,avatar_url,is_verified,tree_level)')
+    .order('created_at', { ascending: false })
+    .range(from, to);
+
+  if (reset) el.innerHTML = '';
+
+  if (!posts || posts.length === 0) {
+    if (timelinePage === 0) el.innerHTML = '<div class="empty"><div class="empty-icon">🌿</div><p>まだ投稿がありません。</p></div>';
+    timelineAllLoaded = true;
+    timelineLoading = false;
+    return;
   }
-  const { data: posts } = await query;
-  if (!posts || posts.length === 0) { el.innerHTML = '<div class="empty"><div class="empty-icon">🌿</div><p>まだ投稿がありません。<br>フォローすると表示されます。</p></div>'; return; }
+
+  if (posts.length < TIMELINE_PAGE_SIZE) timelineAllLoaded = true;
+
   let likes = {};
   if (currentUser) {
     const { data: likeData } = await db.from('likes').select('post_id').eq('user_id', currentUser.id).in('post_id', posts.map(p => p.id));
     (likeData || []).forEach(l => likes[l.post_id] = true);
   }
-  el.innerHTML = posts.map(p => postCardHTML(p, likes[p.id])).join('');
+  el.insertAdjacentHTML('beforeend', posts.map(p => postCardHTML(p, likes[p.id])).join(''));
+  timelinePage++;
+  timelineLoading = false;
+}
+
+function setupTimelineScroll() {
+  const sentinel = document.getElementById('timeline-sentinel');
+  if (!sentinel) return;
+  const observer = new IntersectionObserver(entries => {
+    if (entries[0].isIntersecting) loadTimeline();
+  }, { rootMargin: '200px' });
+  observer.observe(sentinel);
 }
 
 function postCardHTML(p, liked) {
   const user = p.user || {};
+  const lv = user.tree_level || 1;
   return `<div class="post-card" id="post-${p.id}">
     <div onclick="navigate('profile','${esc(user.id)}')" style="cursor:pointer">${avatarHTML(user, 44)}</div>
     <div class="post-body">
       <div class="post-header">
         <span class="post-name" onclick="navigate('profile','${esc(user.id)}')">${esc(user.display_name)}</span>
         ${user.is_verified ? verifiedBadge() : ''}
+        <span style="font-size:11px;background:var(--green-50);color:var(--green-600);border:1px solid var(--green-200);border-radius:999px;padding:1px 7px;font-weight:600">Lv.${lv}</span>
         <span class="post-uid">@${esc(user.id)}</span>
         <span class="post-time">${timeAgo(p.created_at)}</span>
       </div>
@@ -886,7 +920,7 @@ async function switchProfileTab(tab, uid) {
 }
 
 async function loadProfilePosts(uid) {
-  const { data: posts } = await db.from('posts').select('*, user:users(id,display_name,avatar_url,is_verified)').eq('user_id', uid).order('created_at', { ascending: false }).limit(50);
+  const { data: posts } = await db.from('posts').select('*, user:users(id,display_name,avatar_url,is_verified,tree_level)').eq('user_id', uid).order('created_at', { ascending: false }).limit(50);
   const el = document.getElementById('profile-posts');
   if (!posts || posts.length === 0) { el.innerHTML = '<div class="empty"><div class="empty-icon">📝</div><p>まだ投稿がありません</p></div>'; return; }
   let likes = {};
