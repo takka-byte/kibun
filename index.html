@@ -239,6 +239,35 @@ body { font-family: 'Hiragino Sans', 'Yu Gothic UI', sans-serif; background: var
 .file-input-label:hover { border-color: var(--green-400); background: var(--green-50); }
 .file-input-label svg { width: 16px; height: 16px; color: var(--green-600); }
 
+/* ===== CUSTOM CONFIRM DIALOG ===== */
+#kibun-dialog-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 300; display: flex; align-items: center; justify-content: center; padding: 20px; opacity: 0; transition: opacity 0.15s; pointer-events: none; }
+#kibun-dialog-overlay.show { opacity: 1; pointer-events: all; }
+#kibun-dialog { background: var(--surface); border-radius: 16px; width: 100%; max-width: 360px; box-shadow: 0 20px 60px rgba(0,0,0,0.2); overflow: hidden; transform: scale(0.95); transition: transform 0.15s; }
+#kibun-dialog-overlay.show #kibun-dialog { transform: scale(1); }
+#kibun-dialog-icon { font-size: 36px; text-align: center; padding: 24px 24px 8px; }
+#kibun-dialog-title { font-size: 17px; font-weight: 700; text-align: center; padding: 0 24px 6px; color: var(--text); }
+#kibun-dialog-msg { font-size: 14px; color: var(--text-2); text-align: center; padding: 0 24px 20px; line-height: 1.6; }
+#kibun-dialog-btns { display: flex; border-top: 1px solid var(--border); }
+#kibun-dialog-btns button { flex: 1; padding: 14px; font-size: 15px; font-weight: 600; border: none; background: none; cursor: pointer; transition: background 0.1s; font-family: inherit; }
+#kibun-dialog-btns button:first-child { border-right: 1px solid var(--border); color: var(--text-3); }
+#kibun-dialog-btns button:first-child:hover { background: var(--surface-2); }
+#kibun-dialog-btns button.confirm-ok { color: var(--green-600); }
+#kibun-dialog-btns button.confirm-ok:hover { background: var(--green-50); }
+#kibun-dialog-btns button.confirm-danger { color: var(--red); }
+#kibun-dialog-btns button.confirm-danger:hover { background: #fff0f0; }
+
+/* ===== SETTINGS TABS ===== */
+.settings-tab-bar { display: flex; border-bottom: 1px solid var(--border); background: var(--surface); position: sticky; top: 57px; z-index: 5; overflow-x: auto; scrollbar-width: none; }
+.settings-tab-bar::-webkit-scrollbar { display: none; }
+.settings-tab { padding: 12px 16px; font-size: 13px; font-weight: 600; color: var(--text-3); cursor: pointer; border-bottom: 2px solid transparent; white-space: nowrap; transition: all 0.15s; background: none; border-top: none; border-left: none; border-right: none; font-family: inherit; }
+.settings-tab.active { color: var(--green-600); border-bottom-color: var(--green-600); }
+.settings-tab:hover { background: var(--surface-2); }
+.settings-pane { display: none; padding: 0 20px 40px; }
+.settings-pane.active { display: block; }
+.settings-group { padding: 20px 0; border-bottom: 1px solid var(--border); }
+.settings-group:last-child { border-bottom: none; }
+.settings-group-title { font-size: 11px; font-weight: 700; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 14px; }
+
 /* ===== RIGHTBAR ===== */
 .rightbar-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; margin-bottom: 16px; }
 .rightbar-card h3 { font-size: 15px; font-weight: 700; margin-bottom: 12px; }
@@ -253,6 +282,19 @@ body { font-family: 'Hiragino Sans', 'Yu Gothic UI', sans-serif; background: var
 <body>
 
 <div id="toast"></div>
+
+<!-- CONFIRM DIALOG -->
+<div id="kibun-dialog-overlay">
+  <div id="kibun-dialog">
+    <div id="kibun-dialog-icon"></div>
+    <div id="kibun-dialog-title"></div>
+    <div id="kibun-dialog-msg"></div>
+    <div id="kibun-dialog-btns">
+      <button id="kibun-dialog-cancel">キャンセル</button>
+      <button id="kibun-dialog-ok" class="confirm-ok">OK</button>
+    </div>
+  </div>
+</div>
 
 <!-- MAIN APP -->
 <div class="app" id="app" style="display:none">
@@ -426,6 +468,28 @@ let currentUser = null;
 let currentPage = 'home';
 let currentPageParam = null;
 let notifInterval = null;
+
+// ===== CUSTOM CONFIRM DIALOG =====
+function kibunConfirm({ icon = '🌿', title, message, okLabel = 'OK', danger = false }) {
+  return new Promise(resolve => {
+    const overlay = document.getElementById('kibun-dialog-overlay');
+    document.getElementById('kibun-dialog-icon').textContent = icon;
+    document.getElementById('kibun-dialog-title').textContent = title;
+    document.getElementById('kibun-dialog-msg').textContent = message;
+    const okBtn = document.getElementById('kibun-dialog-ok');
+    okBtn.textContent = okLabel;
+    okBtn.className = danger ? 'confirm-danger' : 'confirm-ok';
+    overlay.classList.add('show');
+    const close = (result) => {
+      overlay.classList.remove('show');
+      okBtn.replaceWith(okBtn.cloneNode(true));
+      document.getElementById('kibun-dialog-cancel').replaceWith(document.getElementById('kibun-dialog-cancel').cloneNode(true));
+      resolve(result);
+    };
+    document.getElementById('kibun-dialog-ok').addEventListener('click', () => close(true));
+    document.getElementById('kibun-dialog-cancel').addEventListener('click', () => close(false));
+  });
+}
 
 // ===== INIT =====
 window.addEventListener('load', async () => {
@@ -842,7 +906,8 @@ async function toggleLike(postId, postUserId, btn) {
 }
 
 async function deletePost(postId) {
-  if (!confirm('この投稿を削除しますか？')) return;
+  const ok = await kibunConfirm({ icon: '🗑️', title: '投稿を削除', message: 'この投稿を削除しますか？この操作は取り消せません。', okLabel: '削除する', danger: true });
+  if (!ok) return;
   await db.from('posts').delete().eq('id', postId);
   document.getElementById('post-' + postId)?.remove();
   showToast('削除しました');
@@ -1011,7 +1076,8 @@ async function toggleBlock(targetId, currentlyBlocked) {
       await db.from('blocks').delete().eq('blocker_id', currentUser.id).eq('blocked_id', targetId);
       showToast('ブロックを解除しました');
     } else {
-      if (!confirm('このユーザーをブロックしますか？')) return;
+      const ok = await kibunConfirm({ icon: '🚫', title: 'ブロックしますか？', message: 'このユーザーをブロックします。お互いの投稿が見えなくなります。', okLabel: 'ブロックする', danger: true });
+      if (!ok) return;
       await db.from('blocks').insert({ blocker_id: currentUser.id, blocked_id: targetId });
       await db.from('follows').delete().eq('follower_id', currentUser.id).eq('following_id', targetId);
       await db.from('follows').delete().eq('follower_id', targetId).eq('following_id', currentUser.id);
@@ -1170,109 +1236,140 @@ async function sendDM(threadId, otherId) {
 function renderSettings() {
   if (!currentUser) { document.getElementById('main-content').innerHTML = '<div class="empty"><p>ログインが必要です</p></div>'; return; }
   const main = document.getElementById('main-content');
-
-  // 年プルダウン選択肢
-  const currentYear = new Date().getFullYear();
-  const yearOptions = Array.from({length: 100}, (_, i) => {
-    const y = currentYear - i;
-    return `<option value="${y}" ${currentUser.birth_year == y ? 'selected' : ''}>${y}年</option>`;
-  }).join('');
-  const monthOptions = Array.from({length: 12}, (_, i) => {
-    const m = i + 1;
-    return `<option value="${m}" ${currentUser.birth_month == m ? 'selected' : ''}>${m}月</option>`;
-  }).join('');
-
   main.innerHTML = `
     <div class="page-header">設定</div>
-    <div style="padding:0 20px">
-
-      <div class="settings-section">
-        <h3>プロフィール</h3>
-        <div class="field">
-          <label>表示名</label>
-          <input type="text" id="set-name" value="${esc(currentUser.display_name)}" maxlength="30">
-        </div>
-        <div class="field">
-          <label>自己紹介</label>
-          <textarea id="set-bio" rows="3" maxlength="160" style="resize:none">${esc(currentUser.bio || '')}</textarea>
-        </div>
+    <div class="settings-tab-bar">
+      <button class="settings-tab active" onclick="switchSettingsTab('profile',this)">プロフィール</button>
+      <button class="settings-tab" onclick="switchSettingsTab('security',this)">セキュリティ</button>
+      <button class="settings-tab" onclick="switchSettingsTab('privacy',this)">プライバシー</button>
+      <button class="settings-tab" onclick="switchSettingsTab('account',this)">アカウント</button>
+    </div>
+    <div class="settings-pane active" id="pane-profile">
+      <div class="settings-group">
+        <div class="settings-group-title">基本情報</div>
+        <div class="field"><label>表示名</label><input type="text" id="set-name" value="${esc(currentUser.display_name)}" maxlength="30"></div>
+        <div class="field"><label>自己紹介</label><textarea id="set-bio" rows="3" maxlength="160" style="resize:none">${esc(currentUser.bio || '')}</textarea><div class="hint">最大160文字</div></div>
         <div class="field">
           <label>生年月日</label>
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
             <div class="custom-select-wrapper" style="flex:2;min-width:100px">
-              <select class="custom-select" id="set-birth-year">
-                <option value="">年</option>
-                ${yearOptions}
-              </select>
+              <select class="custom-select" id="set-birth-year"><option value="">年</option></select>
               <span class="custom-select-arrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg></span>
             </div>
             <div class="custom-select-wrapper" style="flex:1;min-width:80px">
-              <select class="custom-select" id="set-birth-month">
-                <option value="">月</option>
-                ${monthOptions}
-              </select>
+              <select class="custom-select" id="set-birth-month"><option value="">月</option></select>
               <span class="custom-select-arrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg></span>
             </div>
-            <input type="number" id="set-birth-day" min="1" max="31" placeholder="日" value="${currentUser.birth_day || ''}" style="flex:1;min-width:64px;border:1.5px solid var(--border);border-radius:8px;padding:10px 12px;font-size:15px;font-family:inherit;color:var(--text);background:var(--surface);outline:none">
+            <input type="number" id="set-birth-day" min="1" max="31" placeholder="日" value="${currentUser.birth_day || ''}" style="flex:1;min-width:64px;border:1.5px solid var(--border);border-radius:8px;padding:10px 12px;font-size:15px;font-family:inherit;color:var(--text);background:var(--surface);outline:none;transition:border-color 0.15s">
           </div>
           <div class="hint">プロフィールに表示されます（任意）</div>
         </div>
+      </div>
+      <div class="settings-group">
+        <div class="settings-group-title">画像</div>
         <div class="field">
           <label>アイコン画像</label>
           <div class="file-input-wrapper" style="display:inline-block">
-            <div class="file-input-label">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-              画像を選択
-            </div>
+            <div class="file-input-label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>画像を選択</div>
             <input type="file" id="avatar-file" accept="image/*" onchange="previewImage(this,'avatar-preview')">
           </div>
-          <div style="margin-top:8px">
-            ${currentUser.avatar_url ? `<img src="${esc(currentUser.avatar_url)}" class="img-preview" id="avatar-preview">` : `<div class="img-preview" id="avatar-preview" style="background:var(--green-100);display:flex;align-items:center;justify-content:center;color:var(--green-600);font-size:24px">+</div>`}
-          </div>
+          <div style="margin-top:8px">${currentUser.avatar_url ? `<img src="${esc(currentUser.avatar_url)}" class="img-preview" id="avatar-preview">` : `<div class="img-preview" id="avatar-preview" style="background:var(--green-100);display:flex;align-items:center;justify-content:center;color:var(--green-600);font-size:24px">+</div>`}</div>
         </div>
         <div class="field">
           <label>ヘッダー画像</label>
           <div class="file-input-wrapper" style="display:inline-block">
-            <div class="file-input-label">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-              画像を選択
-            </div>
+            <div class="file-input-label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>画像を選択</div>
             <input type="file" id="header-file" accept="image/*" onchange="previewImage(this,'header-preview')">
           </div>
-          <div style="margin-top:8px">
-            ${currentUser.header_url ? `<img src="${esc(currentUser.header_url)}" class="header-preview" id="header-preview">` : `<div class="header-preview" id="header-preview" style="background:var(--green-100);display:flex;align-items:center;justify-content:center;color:var(--green-600)">+ ヘッダー画像</div>`}
-          </div>
+          <div style="margin-top:8px">${currentUser.header_url ? `<img src="${esc(currentUser.header_url)}" class="header-preview" id="header-preview">` : `<div class="header-preview" id="header-preview" style="background:var(--green-100);display:flex;align-items:center;justify-content:center;color:var(--green-600)">+ ヘッダー画像</div>`}</div>
         </div>
-        <button class="btn-primary" onclick="saveProfile()">プロフィールを保存</button>
       </div>
-
-      <div class="settings-section">
-        <h3>パスワード変更</h3>
-        <div class="field">
-          <label>現在のパスワード</label>
-          <input type="password" id="pw-current" placeholder="現在のパスワード">
-        </div>
-        <div class="field">
-          <label>新しいパスワード</label>
-          <input type="password" id="pw-new" placeholder="8文字以上">
-        </div>
-        <div class="field">
-          <label>新しいパスワード（確認）</label>
-          <input type="password" id="pw-new2" placeholder="同じパスワードを入力">
-        </div>
+      <div style="padding-top:16px"><button class="btn-primary" onclick="saveProfile()">プロフィールを保存</button></div>
+    </div>
+    <div class="settings-pane" id="pane-security">
+      <div class="settings-group">
+        <div class="settings-group-title">パスワード変更</div>
+        <div class="field"><label>現在のパスワード</label><input type="password" id="pw-current" placeholder="現在のパスワード"></div>
+        <div class="field"><label>新しいパスワード</label><input type="password" id="pw-new" placeholder="8文字以上"></div>
+        <div class="field"><label>新しいパスワード（確認）</label><input type="password" id="pw-new2" placeholder="同じパスワードを入力"></div>
         <button class="btn-secondary" onclick="changePassword()">パスワードを変更</button>
       </div>
-
-      <div class="settings-section">
-        <h3>アカウント</h3>
-        <div style="padding:8px 0;display:flex;flex-direction:column;gap:10px">
-          <button class="btn-secondary" onclick="logout()">ログアウト</button>
-          <button class="btn-danger" onclick="deleteAccount()">アカウントを削除する</button>
+      <div class="settings-group">
+        <div class="settings-group-title">ログイン情報</div>
+        <div style="font-size:14px;color:var(--text-2);padding:4px 0 12px"><span style="color:var(--text-3)">ユーザーID：</span>@${esc(currentUser.id)}<br><span style="font-size:12px;color:var(--text-3)">ユーザーIDは変更できません</span></div>
+        <button class="btn-secondary" onclick="logout()">ログアウト</button>
+      </div>
+    </div>
+    <div class="settings-pane" id="pane-privacy">
+      <div class="settings-group">
+        <div class="settings-group-title">ブロック中のユーザー</div>
+        <div id="block-list"><div class="spinner">読み込み中...</div></div>
+      </div>
+    </div>
+    <div class="settings-pane" id="pane-account">
+      <div class="settings-group">
+        <div class="settings-group-title">アカウント情報</div>
+        <div style="font-size:14px;color:var(--text-2);line-height:2.2">
+          <div><span style="color:var(--text-3)">ユーザーID：</span>@${esc(currentUser.id)}</div>
+          <div><span style="color:var(--text-3)">表示名：</span>${esc(currentUser.display_name)}</div>
+          <div><span style="color:var(--text-3)">レベル：</span>Lv.${currentUser.tree_level || 1}</div>
+          <div><span style="color:var(--text-3)">総投稿数：</span>${currentUser.tree_total_posts || 0}回</div>
         </div>
       </div>
-
+      <div class="settings-group">
+        <div class="settings-group-title" style="color:var(--red)">危険な操作</div>
+        <p style="font-size:13px;color:var(--text-3);margin-bottom:14px;line-height:1.6">アカウントを削除すると、投稿・フォロー・木のデータがすべて失われます。この操作は取り消せません。</p>
+        <button class="btn-danger" onclick="deleteAccount()">アカウントを削除する</button>
+      </div>
     </div>
   `;
+  // プルダウンをJSで生成（テンプレートリテラル内ループを避けるため）
+  const currentYear = new Date().getFullYear();
+  const yearSel = document.getElementById('set-birth-year');
+  for (let y = currentYear; y >= currentYear - 100; y--) {
+    const opt = document.createElement('option');
+    opt.value = y; opt.textContent = y + '年';
+    if (currentUser.birth_year == y) opt.selected = true;
+    yearSel.appendChild(opt);
+  }
+  const monthSel = document.getElementById('set-birth-month');
+  for (let m = 1; m <= 12; m++) {
+    const opt = document.createElement('option');
+    opt.value = m; opt.textContent = m + '月';
+    if (currentUser.birth_month == m) opt.selected = true;
+    monthSel.appendChild(opt);
+  }
+  loadBlockList();
+}
+
+function switchSettingsTab(tabId, btn) {
+  document.querySelectorAll('.settings-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.settings-pane').forEach(p => p.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('pane-' + tabId).classList.add('active');
+}
+
+async function loadBlockList() {
+  const el = document.getElementById('block-list');
+  if (!el) return;
+  const { data: blocks } = await db.from('blocks').select('blocked_id').eq('blocker_id', currentUser.id);
+  if (!blocks || blocks.length === 0) { el.innerHTML = '<div style="font-size:14px;color:var(--text-3);padding:8px 0">ブロック中のユーザーはいません</div>'; return; }
+  const { data: users } = await db.from('users').select('id,display_name,avatar_url,is_verified').in('id', blocks.map(b => b.blocked_id));
+  el.innerHTML = (users || []).map(u => `
+    <div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border)">
+      ${avatarHTML(u, 36)}
+      <div style="flex:1"><div style="font-size:14px;font-weight:600">${esc(u.display_name)}</div><div style="font-size:12px;color:var(--text-3)">@${esc(u.id)}</div></div>
+      <button class="follow-btn not-following" style="font-size:13px;padding:5px 14px" onclick="unblockUser('${esc(u.id)}',this)">解除</button>
+    </div>
+  `).join('');
+}
+
+async function unblockUser(uid, btn) {
+  await db.from('blocks').delete().eq('blocker_id', currentUser.id).eq('blocked_id', uid);
+  btn.closest('div[style]').remove();
+  showToast('ブロックを解除しました');
+  const el = document.getElementById('block-list');
+  if (el && el.querySelectorAll('div[style]').length === 0) el.innerHTML = '<div style="font-size:14px;color:var(--text-3);padding:8px 0">ブロック中のユーザーはいません</div>';
 }
 
 function previewImage(input, previewId) {
@@ -1333,8 +1430,10 @@ async function changePassword() {
 }
 
 async function deleteAccount() {
-  if (!confirm('本当にアカウントを削除しますか？この操作は取り消せません。')) return;
-  if (!confirm('投稿・フォロー情報がすべて削除されます。本当によろしいですか？')) return;
+  const ok1 = await kibunConfirm({ icon: '⚠️', title: 'アカウントを削除しますか？', message: '投稿・フォロー情報がすべて削除されます。この操作は取り消せません。', okLabel: '削除する', danger: true });
+  if (!ok1) return;
+  const ok2 = await kibunConfirm({ icon: '🌳', title: '本当によろしいですか？', message: 'あなたの木も消えてしまいます。本当に削除しますか？', okLabel: '今すぐ削除', danger: true });
+  if (!ok2) return;
   await db.from('users').delete().eq('id', currentUser.id);
   logout();
   showToast('アカウントを削除しました');
@@ -1383,7 +1482,8 @@ async function adminToggleVerify(uid, current) {
 }
 
 async function adminDeleteUser(uid) {
-  if (!confirm(`@${uid} を削除しますか？`)) return;
+  const ok = await kibunConfirm({ icon: '🛡️', title: 'ユーザーを削除', message: `@${uid} を強制削除します。この操作は取り消せません。`, okLabel: '削除する', danger: true });
+  if (!ok) return;
   await db.from('users').delete().eq('id', uid);
   showToast('ユーザーを削除しました');
   await adminSearch(document.getElementById('admin-search-input')?.value || '');
