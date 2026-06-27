@@ -717,7 +717,7 @@ async function renderHome() {
   timelinePage = 0;
   timelineAllLoaded = false;
   await loadTimeline(true);
-  setupTimelineScroll();
+  setupTimelineScroll(); // 初回ロード完了後にスクロール監視を開始
 }
 
 let timelinePage = 0;
@@ -730,19 +730,29 @@ async function loadTimeline(reset = false) {
   timelineLoading = true;
   const el = document.getElementById('home-timeline');
   if (!el) { timelineLoading = false; return; }
-  if (reset) { el.innerHTML = '<div class="spinner">読み込み中...</div>'; timelinePage = 0; timelineAllLoaded = false; }
+  if (reset) {
+    el.innerHTML = '<div class="spinner">読み込み中...</div>';
+    timelinePage = 0;
+    timelineAllLoaded = false;
+  }
 
   const from = timelinePage * TIMELINE_PAGE_SIZE;
   const to = from + TIMELINE_PAGE_SIZE - 1;
-  const { data: posts } = await db.from('posts')
+  const { data: posts, error } = await db.from('posts')
     .select('*, user:users(id,display_name,avatar_url,is_verified,tree_level)')
     .order('created_at', { ascending: false })
     .range(from, to);
 
   if (reset) el.innerHTML = '';
 
-  if (!posts || posts.length === 0) {
-    if (timelinePage === 0) el.innerHTML = '<div class="empty"><div class="empty-icon">🌿</div><p>まだ投稿がありません。</p></div>';
+  if (error || !posts || posts.length === 0) {
+    if (timelinePage === 0) {
+      if (error) {
+        el.innerHTML = `<div class="empty"><div class="empty-icon">⚠️</div><p>読み込みに失敗しました<br><span style="font-size:12px;color:var(--text-3)">${esc(error.message)}</span></p></div>`;
+      } else {
+        el.innerHTML = '<div class="empty"><div class="empty-icon">🌿</div><p>まだ投稿がありません。</p></div>';
+      }
+    }
     timelineAllLoaded = true;
     timelineLoading = false;
     return;
