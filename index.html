@@ -225,6 +225,20 @@ body { font-family: 'Hiragino Sans', 'Yu Gothic UI', sans-serif; background: var
 .water-btn { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-3); border: 1px solid var(--border); border-radius: 999px; padding: 5px 12px; cursor: pointer; background: none; transition: all 0.15s; }
 .water-btn:hover { border-color: var(--sky-deep); color: #2196F3; background: var(--sky); }
 
+/* ===== CUSTOM SELECT ===== */
+.custom-select-wrapper { position: relative; }
+.custom-select { appearance: none; -webkit-appearance: none; width: 100%; border: 1.5px solid var(--border); border-radius: 8px; padding: 10px 36px 10px 12px; font-size: 15px; font-family: inherit; color: var(--text); background: var(--surface); outline: none; cursor: pointer; transition: border-color 0.15s; }
+.custom-select:focus { border-color: var(--green-400); }
+.custom-select-arrow { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); pointer-events: none; color: var(--text-3); }
+.custom-select-arrow svg { width: 16px; height: 16px; display: block; }
+
+/* ===== CUSTOM FILE INPUT ===== */
+.file-input-wrapper { position: relative; }
+.file-input-wrapper input[type="file"] { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; }
+.file-input-label { display: inline-flex; align-items: center; gap: 8px; border: 1.5px solid var(--border); border-radius: 8px; padding: 9px 14px; font-size: 14px; color: var(--text-2); background: var(--surface); cursor: pointer; transition: border-color 0.15s, background 0.15s; }
+.file-input-label:hover { border-color: var(--green-400); background: var(--green-50); }
+.file-input-label svg { width: 16px; height: 16px; color: var(--green-600); }
+
 /* ===== RIGHTBAR ===== */
 .rightbar-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; margin-bottom: 16px; }
 .rightbar-card h3 { font-size: 15px; font-weight: 700; margin-bottom: 12px; }
@@ -554,26 +568,29 @@ function renderSidebarUser() {
 }
 
 // ===== TREE SVG =====
-function renderTree(level, streak) {
+function renderTree(level, streak, seed) {
   const lv = Math.min(Math.max(level || 1, 1), 10);
-  const treeH = 30 + lv * 12;
-  const leafSize = 10 + lv * 4;
+  // seedベースの疑似乱数（同じseedなら毎回同じ形）
+  const rng = (() => {
+    let s = (seed || 42) * 9301 + 49297;
+    return () => { s = (s * 9301 + 49297) % 233280; return s / 233280; };
+  })();
   const trunkH = 20 + lv * 3;
   const trunkW = 6 + lv;
+  const leafSize = 10 + lv * 4;
   const cx = 80, cy = 140;
   const leafColor = lv < 4 ? '#a8d9b8' : lv < 7 ? '#5cb87a' : '#2d8a4e';
   const leafCount = Math.min(lv * 2, 16);
   let leaves = '';
   for (let i = 0; i < leafCount; i++) {
     const angle = (i / leafCount) * Math.PI * 2;
-    const r = leafSize * (0.5 + Math.random() * 0.5);
+    const r = leafSize * (0.5 + rng() * 0.5);
     const lx = cx + Math.cos(angle) * r;
     const ly = (cy - trunkH) + Math.sin(angle) * r * 0.6;
-    const ls = 8 + Math.random() * leafSize;
+    const ls = 8 + rng() * leafSize;
     leaves += `<ellipse cx="${lx.toFixed(1)}" cy="${ly.toFixed(1)}" rx="${ls.toFixed(1)}" ry="${(ls*0.6).toFixed(1)}" fill="${leafColor}" opacity="0.85"/>`;
   }
   if (streak > 0) {
-    // 水滴エフェクト
     for (let i = 0; i < Math.min(streak, 5); i++) {
       const dx = cx - 20 + i * 10, dy = cy - trunkH - leafSize + i * 5;
       leaves += `<ellipse cx="${dx}" cy="${dy}" rx="2" ry="3" fill="#bde0f7" opacity="0.7"/>`;
@@ -643,9 +660,13 @@ function updateModalCount(el) {
 async function submitPost() {
   const text = document.getElementById('modal-post-text').value.trim();
   if (!text || text.length > 280) return;
+  // 1日1投稿チェック
+  const today = new Date().toISOString().split('T')[0];
+  if (currentUser.tree_last_post === today) {
+    showToast('今日はもう投稿しました！明日また来てね 🌿'); return;
+  }
   const { error } = await db.from('posts').insert({ user_id: currentUser.id, content: text });
   if (error) { showToast('投稿に失敗しました'); return; }
-  // 木の成長処理
   await updateTree();
   closePostModal();
   showToast('投稿しました 🌱');
@@ -657,12 +678,13 @@ async function updateTree() {
   const last = currentUser.tree_last_post;
   let streak = currentUser.tree_streak || 0;
   let total = (currentUser.tree_total_posts || 0) + 1;
-  if (last === today) return; // 1日1回のみカウント
+  if (last === today) return;
   const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
   streak = (last === yesterday) ? streak + 1 : 1;
-  // レベル計算: 10投稿ごとに1レベルアップ（最大10）
   const level = Math.min(Math.floor(total / 10) + 1, 10);
-  const update = { tree_last_post: today, tree_streak: streak, tree_total_posts: total, tree_level: level };
+  // 初回のみseedを生成して固定
+  const seed = currentUser.tree_seed || Math.floor(Math.random() * 99999) + 1;
+  const update = { tree_last_post: today, tree_streak: streak, tree_total_posts: total, tree_level: level, tree_seed: seed };
   await db.from('users').update(update).eq('id', currentUser.id);
   currentUser = { ...currentUser, ...update };
   localStorage.setItem('kibun_user', JSON.stringify(currentUser));
@@ -833,7 +855,7 @@ async function renderExplore() {
   el.innerHTML = `<div style="padding:16px 20px;display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:12px">
     ${filtered.map(u => `
       <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px;text-align:center;cursor:pointer" onclick="navigate('profile','${esc(u.id)}')">
-        ${renderTree(u.tree_level, u.tree_streak)}
+        ${renderTree(u.tree_level, u.tree_streak, u.tree_seed)}
         <div style="margin-top:8px;font-size:13px;font-weight:600;display:flex;align-items:center;justify-content:center;gap:4px">${esc(u.display_name)}${u.is_verified ? verifiedBadge() : ''}</div>
         <div style="font-size:11px;color:var(--text-3)">Lv.${u.tree_level} · 🔥${u.tree_streak}日</div>
         ${currentUser && currentUser.id !== u.id ? `<button class="water-btn" style="margin:8px auto 0;font-size:12px" onclick="event.stopPropagation();giveWater('${esc(u.id)}')">💧 水やり</button>` : ''}
@@ -871,6 +893,17 @@ async function renderProfile(uid) {
   }
   const { count: followersCount } = await db.from('follows').select('*', { count: 'exact', head: true }).eq('following_id', targetId);
   const { count: followingCount } = await db.from('follows').select('*', { count: 'exact', head: true }).eq('follower_id', targetId);
+  const { count: waterCount } = await db.from('tree_waters').select('*', { count: 'exact', head: true }).eq('to_user_id', targetId);
+
+  // 生年月日フォーマット
+  let birthdayStr = '';
+  if (user.birth_year || user.birth_month || user.birth_day) {
+    const parts = [];
+    if (user.birth_year) parts.push(user.birth_year + '年');
+    if (user.birth_month) parts.push(user.birth_month + '月');
+    if (user.birth_day) parts.push(user.birth_day + '日');
+    birthdayStr = parts.join('');
+  }
 
   main.innerHTML = `
     ${user.header_url ? `<img src="${esc(user.header_url)}" class="profile-header-img">` : '<div class="profile-header-placeholder"></div>'}
@@ -888,6 +921,7 @@ async function renderProfile(uid) {
       </div>
       <div class="profile-display-name">${esc(user.display_name)} ${user.is_verified ? verifiedBadge() : ''}</div>
       <div class="profile-uid">@${esc(user.id)}</div>
+      ${birthdayStr ? `<div style="font-size:13px;color:var(--text-3);margin-bottom:6px;display:flex;align-items:center;gap:4px"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>${esc(birthdayStr)}</div>` : ''}
       ${user.bio ? `<div class="profile-bio">${esc(user.bio)}</div>` : ''}
       <div class="profile-follow-row">
         <span onclick="navigate('following','${esc(targetId)}')"><strong>${followingCount || 0}</strong> フォロー中</span>
@@ -895,11 +929,12 @@ async function renderProfile(uid) {
       </div>
     </div>
     <div style="padding:12px 20px">
-      ${renderTree(user.tree_level, user.tree_streak)}
+      ${renderTree(user.tree_level, user.tree_streak, user.tree_seed)}
       <div class="tree-stats">
         <div class="tree-stat"><div class="tree-stat-num">Lv.${user.tree_level}</div><div class="tree-stat-label">レベル</div></div>
         <div class="tree-stat"><div class="tree-stat-num">🔥${user.tree_streak}</div><div class="tree-stat-label">連続日数</div></div>
         <div class="tree-stat"><div class="tree-stat-num">${user.tree_total_posts || 0}</div><div class="tree-stat-label">総投稿数</div></div>
+        <div class="tree-stat"><div class="tree-stat-num">💧${waterCount || 0}</div><div class="tree-stat-label">水やり回数</div></div>
       </div>
     </div>
     <div class="tabs">
@@ -1125,6 +1160,18 @@ async function sendDM(threadId, otherId) {
 function renderSettings() {
   if (!currentUser) { document.getElementById('main-content').innerHTML = '<div class="empty"><p>ログインが必要です</p></div>'; return; }
   const main = document.getElementById('main-content');
+
+  // 年プルダウン選択肢
+  const currentYear = new Date().getFullYear();
+  const yearOptions = Array.from({length: 100}, (_, i) => {
+    const y = currentYear - i;
+    return `<option value="${y}" ${currentUser.birth_year == y ? 'selected' : ''}>${y}年</option>`;
+  }).join('');
+  const monthOptions = Array.from({length: 12}, (_, i) => {
+    const m = i + 1;
+    return `<option value="${m}" ${currentUser.birth_month == m ? 'selected' : ''}>${m}月</option>`;
+  }).join('');
+
   main.innerHTML = `
     <div class="page-header">設定</div>
     <div style="padding:0 20px">
@@ -1140,14 +1187,51 @@ function renderSettings() {
           <textarea id="set-bio" rows="3" maxlength="160" style="resize:none">${esc(currentUser.bio || '')}</textarea>
         </div>
         <div class="field">
+          <label>生年月日</label>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <div class="custom-select-wrapper" style="flex:2;min-width:100px">
+              <select class="custom-select" id="set-birth-year">
+                <option value="">年</option>
+                ${yearOptions}
+              </select>
+              <span class="custom-select-arrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg></span>
+            </div>
+            <div class="custom-select-wrapper" style="flex:1;min-width:80px">
+              <select class="custom-select" id="set-birth-month">
+                <option value="">月</option>
+                ${monthOptions}
+              </select>
+              <span class="custom-select-arrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg></span>
+            </div>
+            <input type="number" id="set-birth-day" min="1" max="31" placeholder="日" value="${currentUser.birth_day || ''}" style="flex:1;min-width:64px;border:1.5px solid var(--border);border-radius:8px;padding:10px 12px;font-size:15px;font-family:inherit;color:var(--text);background:var(--surface);outline:none">
+          </div>
+          <div class="hint">プロフィールに表示されます（任意）</div>
+        </div>
+        <div class="field">
           <label>アイコン画像</label>
-          <input type="file" id="avatar-file" accept="image/*" onchange="previewImage(this,'avatar-preview')">
-          ${currentUser.avatar_url ? `<img src="${esc(currentUser.avatar_url)}" class="img-preview" id="avatar-preview">` : `<div class="img-preview" id="avatar-preview" style="background:var(--green-100);display:flex;align-items:center;justify-content:center;color:var(--green-600);font-size:24px">+</div>`}
+          <div class="file-input-wrapper" style="display:inline-block">
+            <div class="file-input-label">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+              画像を選択
+            </div>
+            <input type="file" id="avatar-file" accept="image/*" onchange="previewImage(this,'avatar-preview')">
+          </div>
+          <div style="margin-top:8px">
+            ${currentUser.avatar_url ? `<img src="${esc(currentUser.avatar_url)}" class="img-preview" id="avatar-preview">` : `<div class="img-preview" id="avatar-preview" style="background:var(--green-100);display:flex;align-items:center;justify-content:center;color:var(--green-600);font-size:24px">+</div>`}
+          </div>
         </div>
         <div class="field">
           <label>ヘッダー画像</label>
-          <input type="file" id="header-file" accept="image/*" onchange="previewImage(this,'header-preview')">
-          ${currentUser.header_url ? `<img src="${esc(currentUser.header_url)}" class="header-preview" id="header-preview">` : `<div class="header-preview" id="header-preview" style="background:var(--green-100);display:flex;align-items:center;justify-content:center;color:var(--green-600)">+ ヘッダー画像</div>`}
+          <div class="file-input-wrapper" style="display:inline-block">
+            <div class="file-input-label">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+              画像を選択
+            </div>
+            <input type="file" id="header-file" accept="image/*" onchange="previewImage(this,'header-preview')">
+          </div>
+          <div style="margin-top:8px">
+            ${currentUser.header_url ? `<img src="${esc(currentUser.header_url)}" class="header-preview" id="header-preview">` : `<div class="header-preview" id="header-preview" style="background:var(--green-100);display:flex;align-items:center;justify-content:center;color:var(--green-600)">+ ヘッダー画像</div>`}
+          </div>
         </div>
         <button class="btn-primary" onclick="saveProfile()">プロフィールを保存</button>
       </div>
@@ -1205,7 +1289,11 @@ async function saveProfile() {
   const name = document.getElementById('set-name').value.trim();
   const bio = document.getElementById('set-bio').value.trim();
   if (!name) { showToast('表示名を入力してください'); return; }
-  const update = { display_name: name, bio };
+  const birthYear = parseInt(document.getElementById('set-birth-year').value) || null;
+  const birthMonth = parseInt(document.getElementById('set-birth-month').value) || null;
+  const birthDay = parseInt(document.getElementById('set-birth-day').value) || null;
+  if (birthDay && (birthDay < 1 || birthDay > 31)) { showToast('日は1〜31で入力してください'); return; }
+  const update = { display_name: name, bio, birth_year: birthYear, birth_month: birthMonth, birth_day: birthDay };
   const avatarFile = document.getElementById('avatar-file').files[0];
   const headerFile = document.getElementById('header-file').files[0];
   try {
