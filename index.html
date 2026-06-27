@@ -739,7 +739,7 @@ async function loadTimeline(reset = false) {
   const from = timelinePage * TIMELINE_PAGE_SIZE;
   const to = from + TIMELINE_PAGE_SIZE - 1;
   const { data: posts, error } = await db.from('posts')
-    .select('*, user:users(id,display_name,avatar_url,is_verified,tree_level)')
+    .select('*, user:users!posts_user_id_fkey(id,display_name,avatar_url,is_verified,tree_level)')
     .order('created_at', { ascending: false })
     .range(from, to);
 
@@ -965,7 +965,7 @@ async function switchProfileTab(tab, uid) {
 }
 
 async function loadProfilePosts(uid) {
-  const { data: posts } = await db.from('posts').select('*, user:users(id,display_name,avatar_url,is_verified,tree_level)').eq('user_id', uid).order('created_at', { ascending: false }).limit(50);
+  const { data: posts } = await db.from('posts').select('*, user:users!posts_user_id_fkey(id,display_name,avatar_url,is_verified,tree_level)').eq('user_id', uid).order('created_at', { ascending: false }).limit(50);
   const el = document.getElementById('profile-posts');
   if (!posts || posts.length === 0) { el.innerHTML = '<div class="empty"><div class="empty-icon">📝</div><p>まだ投稿がありません</p></div>'; return; }
   let likes = {};
@@ -980,7 +980,7 @@ async function loadProfileLikes(uid) {
   const { data: likeRecs } = await db.from('likes').select('post_id').eq('user_id', uid).order('created_at', { ascending: false }).limit(50);
   const el = document.getElementById('profile-posts');
   if (!likeRecs || likeRecs.length === 0) { el.innerHTML = '<div class="empty"><div class="empty-icon">💚</div><p>いいねした投稿がありません</p></div>'; return; }
-  const { data: posts } = await db.from('posts').select('*, user:users(id,display_name,avatar_url,is_verified)').in('id', likeRecs.map(l => l.post_id));
+  const { data: posts } = await db.from('posts').select('*, user:users!posts_user_id_fkey(id,display_name,avatar_url,is_verified)').in('id', likeRecs.map(l => l.post_id));
   let likes = {};
   if (currentUser) {
     const { data: likeData } = await db.from('likes').select('post_id').eq('user_id', currentUser.id).in('post_id', (posts||[]).map(p => p.id));
