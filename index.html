@@ -279,6 +279,23 @@ body { font-family: 'Hiragino Sans', 'Yu Gothic UI', sans-serif; background: var
 .settings-group:last-child { border-bottom: none; }
 .settings-group-title { font-size: 11px; font-weight: 700; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 14px; }
 
+/* ===== GARDEN MODAL ===== */
+#garden-modal { position: fixed; inset: 0; background: linear-gradient(160deg, #0d3a1e 0%, #1a5c32 40%, #2d8a4e 100%); z-index: 150; display: none; flex-direction: column; align-items: center; justify-content: center; }
+#garden-modal.show { display: flex; animation: garden-in 0.3s ease; }
+@keyframes garden-in { from { opacity:0; transform:scale(0.97) } to { opacity:1; transform:scale(1) } }
+.garden-close { position: absolute; top: 20px; right: 20px; background: rgba(255,255,255,0.15); border: none; color: white; width: 40px; height: 40px; border-radius: 50%; font-size: 20px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background 0.15s; }
+.garden-close:hover { background: rgba(255,255,255,0.28); }
+.garden-tree-wrap { width: min(80vw, 360px); }
+.garden-info { text-align: center; color: white; margin-top: 20px; }
+.garden-info .g-name { font-size: 20px; font-weight: 700; margin-bottom: 4px; display: flex; align-items: center; justify-content: center; gap: 6px; }
+.garden-info .g-stats { display: flex; gap: 20px; justify-content: center; margin-top: 10px; }
+.garden-info .g-stat { text-align: center; }
+.garden-info .g-stat-num { font-size: 22px; font-weight: 700; }
+.garden-info .g-stat-label { font-size: 11px; opacity: 0.7; margin-top: 2px; }
+.garden-stars { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.garden-star { position: absolute; background: white; border-radius: 50%; animation: twinkle 3s infinite; }
+@keyframes twinkle { 0%,100%{opacity:0.2} 50%{opacity:0.8} }
+
 /* ===== RIGHTBAR ===== */
 .rightbar-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; margin-bottom: 16px; }
 .rightbar-card h3 { font-size: 15px; font-weight: 700; margin-bottom: 12px; }
@@ -293,6 +310,14 @@ body { font-family: 'Hiragino Sans', 'Yu Gothic UI', sans-serif; background: var
 <body>
 
 <div id="toast"></div>
+
+<!-- GARDEN MODAL -->
+<div id="garden-modal">
+  <div class="garden-stars" id="garden-stars"></div>
+  <button class="garden-close" onclick="closeGarden()">✕</button>
+  <div class="garden-tree-wrap" id="garden-tree-svg"></div>
+  <div class="garden-info" id="garden-info"></div>
+</div>
 
 <!-- CONFIRM DIALOG -->
 <div id="kibun-dialog-overlay">
@@ -705,42 +730,108 @@ function renderSidebarUser() {
 }
 
 // ===== TREE SVG =====
-function renderTree(level, streak, seed) {
+function renderTree(level, streak, seed, fullscreen) {
   const lv = Math.min(Math.max(level || 1, 1), 10);
-  // seedベースの疑似乱数（同じseedなら毎回同じ形）
+  const W = fullscreen ? 400 : 160;
+  const H = fullscreen ? 400 : 160;
   const rng = (() => {
-    let s = (seed || 42) * 9301 + 49297;
+    let s = ((seed || 42) * 9301 + 49297) % 233280;
     return () => { s = (s * 9301 + 49297) % 233280; return s / 233280; };
   })();
-  const trunkH = 20 + lv * 3;
-  const trunkW = 6 + lv;
-  const leafSize = 10 + lv * 4;
-  const cx = 80, cy = 140;
-  const leafColor = lv < 4 ? '#a8d9b8' : lv < 7 ? '#5cb87a' : '#2d8a4e';
-  const leafCount = Math.min(lv * 2, 16);
-  let leaves = '';
-  for (let i = 0; i < leafCount; i++) {
-    const angle = (i / leafCount) * Math.PI * 2;
-    const r = leafSize * (0.5 + rng() * 0.5);
-    const lx = cx + Math.cos(angle) * r;
-    const ly = (cy - trunkH) + Math.sin(angle) * r * 0.6;
-    const ls = 8 + rng() * leafSize;
-    leaves += `<ellipse cx="${lx.toFixed(1)}" cy="${ly.toFixed(1)}" rx="${ls.toFixed(1)}" ry="${(ls*0.6).toFixed(1)}" fill="${leafColor}" opacity="0.85"/>`;
-  }
-  if (streak > 0) {
-    for (let i = 0; i < Math.min(streak, 5); i++) {
-      const dx = cx - 20 + i * 10, dy = cy - trunkH - leafSize + i * 5;
-      leaves += `<ellipse cx="${dx}" cy="${dy}" rx="2" ry="3" fill="#bde0f7" opacity="0.7"/>`;
+
+  const cx = W / 2;
+  const groundY = H * 0.88;
+  const trunkH = H * (0.18 + lv * 0.022);
+  const trunkW = W * (0.04 + lv * 0.004);
+  const leafColor1 = lv < 4 ? '#b8e4c8' : lv < 7 ? '#5cb87a' : '#2d8a4e';
+  const leafColor2 = lv < 4 ? '#8dd4ac' : lv < 7 ? '#3da05e' : '#1a6b34';
+  const bgColor = lv >= 8 ? '#d6f0e0' : '#f0faf4';
+
+  // 枝を再帰的に生成
+  let branches = '';
+  let leafClusters = '';
+
+  function drawBranch(x, y, angle, length, width, depth) {
+    if (depth === 0 || length < W * 0.02) return;
+    const ex = x + Math.cos(angle) * length;
+    const ey = y - Math.sin(angle) * length;
+    branches += `<line x1="${x.toFixed(1)}" y1="${y.toFixed(1)}" x2="${ex.toFixed(1)}" y2="${ey.toFixed(1)}" stroke="#8B6340" stroke-width="${Math.max(width, 0.8).toFixed(1)}" stroke-linecap="round"/>`;
+
+    if (depth <= 2) {
+      // 末端に葉っぱクラスター
+      const clusterR = W * (0.06 + rng() * 0.05) * (lv / 10 + 0.4);
+      const col = rng() > 0.5 ? leafColor1 : leafColor2;
+      leafClusters += `<ellipse cx="${ex.toFixed(1)}" cy="${ey.toFixed(1)}" rx="${(clusterR * (0.9 + rng()*0.3)).toFixed(1)}" ry="${(clusterR * (0.7 + rng()*0.3)).toFixed(1)}" fill="${col}" opacity="${(0.75 + rng()*0.2).toFixed(2)}"/>`;
+    }
+
+    const spread = (0.3 + lv * 0.04) * (rng() * 0.4 + 0.8);
+    const leftAngle  = angle + spread * (0.6 + rng() * 0.4);
+    const rightAngle = angle - spread * (0.6 + rng() * 0.4);
+    const lenMul = 0.62 + rng() * 0.12;
+    drawBranch(ex, ey, leftAngle,  length * lenMul, width * 0.65, depth - 1);
+    drawBranch(ex, ey, rightAngle, length * (lenMul - 0.05), width * 0.62, depth - 1);
+    if (depth >= 3 && lv >= 4) {
+      const midAngle = angle + (rng() - 0.5) * spread * 0.6;
+      drawBranch(ex, ey, midAngle, length * (lenMul - 0.1), width * 0.55, depth - 1);
     }
   }
-  return `<svg viewBox="0 0 160 160" xmlns="http://www.w3.org/2000/svg" width="100%" style="max-height:160px">
-    <rect x="0" y="0" width="160" height="160" rx="12" fill="${lv >= 8 ? '#d6f0e0' : '#f0faf4'}"/>
-    ${lv >= 5 ? `<ellipse cx="${cx}" cy="${cy+2}" rx="${trunkW+8}" ry="5" fill="#5c3d1e" opacity="0.18"/>` : ''}
-    <rect x="${cx-trunkW/2}" y="${cy-trunkH}" width="${trunkW}" height="${trunkH+4}" rx="3" fill="#8B6340"/>
-    ${leaves}
-    <circle cx="${cx}" cy="${cy-trunkH}" r="${leafSize * 0.7}" fill="${leafColor}" opacity="0.9"/>
-    ${lv >= 10 ? `<text x="${cx}" y="20" text-anchor="middle" font-size="18">🌸</text>` : ''}
+
+  const branchDepth = Math.min(2 + Math.floor(lv / 2), 5);
+  const initLen = trunkH * (0.42 + lv * 0.018);
+  drawBranch(cx, groundY - trunkH, Math.PI / 2, initLen, trunkW * 0.7, branchDepth);
+
+  // 水やりエフェクト
+  let waterDrops = '';
+  if (streak > 0) {
+    for (let i = 0; i < Math.min(streak, 6); i++) {
+      const dx = cx - 30 + rng() * 60;
+      const dy = groundY - trunkH - initLen * (0.3 + rng() * 0.5);
+      waterDrops += `<ellipse cx="${dx.toFixed(1)}" cy="${dy.toFixed(1)}" rx="2.5" ry="3.5" fill="#89c4e1" opacity="${(0.5 + rng()*0.4).toFixed(2)}"/>`;
+    }
+  }
+
+  const rx = fullscreen ? 20 : 12;
+  return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" width="100%" style="max-height:${fullscreen ? '100%' : '160px'}">
+    <rect x="0" y="0" width="${W}" height="${H}" rx="${rx}" fill="${bgColor}"/>
+    <ellipse cx="${cx}" cy="${groundY+2}" rx="${trunkW*3}" ry="${H*0.03}" fill="#5c3d1e" opacity="0.15"/>
+    <rect x="${cx - trunkW/2}" y="${groundY - trunkH}" width="${trunkW}" height="${trunkH}" rx="${trunkW*0.4}" fill="#8B6340"/>
+    ${branches}
+    ${leafClusters}
+    ${waterDrops}
+    ${lv >= 10 ? `<text x="${cx}" y="${H*0.1}" text-anchor="middle" font-size="${fullscreen ? 32 : 16}">🌸</text>` : ''}
   </svg>`;
+}
+
+// ===== GARDEN (全画面の木) =====
+function openGarden(user) {
+  const modal = document.getElementById('garden-modal');
+  // 星を生成
+  const stars = document.getElementById('garden-stars');
+  stars.innerHTML = '';
+  for (let i = 0; i < 40; i++) {
+    const s = document.createElement('div');
+    s.className = 'garden-star';
+    const size = Math.random() * 3 + 1;
+    s.style.cssText = `width:${size}px;height:${size}px;left:${Math.random()*100}%;top:${Math.random()*100}%;animation-delay:${Math.random()*3}s;animation-duration:${2+Math.random()*3}s`;
+    stars.appendChild(s);
+  }
+  document.getElementById('garden-tree-svg').innerHTML = renderTree(user.tree_level, user.tree_streak, user.tree_seed, true);
+  const badges = user.is_verified ? verifiedBadge() : '';
+  document.getElementById('garden-info').innerHTML = `
+    <div class="g-name">${esc(user.display_name)} ${badges}</div>
+    <div style="font-size:13px;opacity:0.7">@${esc(user.id)}の庭</div>
+    <div class="g-stats">
+      <div class="g-stat"><div class="g-stat-num">Lv.${user.tree_level || 1}</div><div class="g-stat-label">レベル</div></div>
+      <div class="g-stat"><div class="g-stat-num">🔥${user.tree_streak || 0}</div><div class="g-stat-label">連続日数</div></div>
+      <div class="g-stat"><div class="g-stat-num">${user.tree_total_posts || 0}</div><div class="g-stat-label">総投稿数</div></div>
+    </div>
+  `;
+  modal.classList.add('show');
+  document.body.style.overflow = 'hidden';
+}
+function closeGarden() {
+  document.getElementById('garden-modal').classList.remove('show');
+  document.body.style.overflow = '';
 }
 
 // ===== VERIFIED BADGE SVG =====
@@ -1083,7 +1174,13 @@ async function renderProfile(uid) {
       </div>
     </div>
     <div style="padding:12px 20px">
-      ${renderTree(user.tree_level, user.tree_streak, user.tree_seed)}
+      <div style="position:relative">
+        ${renderTree(user.tree_level, user.tree_streak, user.tree_seed)}
+        <button onclick='openGarden(${JSON.stringify({id:user.id,display_name:user.display_name,is_verified:user.is_verified,tree_level:user.tree_level,tree_streak:user.tree_streak,tree_seed:user.tree_seed,tree_total_posts:user.tree_total_posts})})' style="position:absolute;bottom:10px;right:10px;background:rgba(45,138,78,0.85);color:white;border:none;border-radius:999px;padding:6px 14px;font-size:12px;font-weight:600;cursor:pointer;backdrop-filter:blur(4px);display:flex;align-items:center;gap:5px">
+          <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" width="13" height="13"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></svg>
+          庭へ行く
+        </button>
+      </div>
       <div class="tree-stats">
         <div class="tree-stat"><div class="tree-stat-num">Lv.${user.tree_level}</div><div class="tree-stat-label">レベル</div></div>
         <div class="tree-stat"><div class="tree-stat-num">🔥${user.tree_streak}</div><div class="tree-stat-label">連続日数</div></div>
@@ -1336,7 +1433,7 @@ function renderSettings() {
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
             <div id="dd-birth-year" style="flex:2;min-width:110px"></div>
             <div id="dd-birth-month" style="flex:1;min-width:80px"></div>
-            <input type="number" id="set-birth-day" min="1" max="31" placeholder="日" value="${currentUser.birth_day || ''}" style="flex:1;min-width:64px;border:1.5px solid var(--border);border-radius:10px;padding:10px 12px;font-size:15px;font-family:inherit;color:var(--text);background:var(--surface);outline:none;transition:border-color 0.15s">
+            <div id="dd-birth-day" style="flex:1;min-width:72px"></div>
           </div>
           <div class="hint">プロフィールに表示されます（任意）</div>
         </div>
@@ -1404,14 +1501,17 @@ function renderSettings() {
   const yearOptions = [{ value: '', label: '年を選択', disabled: true }];
   for (let y = currentYear; y >= currentYear - 100; y--) yearOptions.push({ value: y, label: y + '年' });
   const ddYear = createDropdown('dd-birth-year', yearOptions, '年を選択', currentUser.birth_year || '');
+  window._ddYear = ddYear;
 
   const monthOptions = [{ value: '', label: '月を選択', disabled: true }];
   for (let m = 1; m <= 12; m++) monthOptions.push({ value: m, label: m + '月' });
   const ddMonth = createDropdown('dd-birth-month', monthOptions, '月を選択', currentUser.birth_month || '');
-
-  // saveProfile時に参照できるようグローバルに保持
-  window._ddYear = ddYear;
   window._ddMonth = ddMonth;
+
+  const dayOptions = [{ value: '', label: '日を選択', disabled: true }];
+  for (let d = 1; d <= 31; d++) dayOptions.push({ value: d, label: d + '日' });
+  const ddDay = createDropdown('dd-birth-day', dayOptions, '日を選択', currentUser.birth_day || '');
+  window._ddDay = ddDay;
   loadBlockList();
 }
 
@@ -1471,7 +1571,7 @@ async function saveProfile() {
   if (!name) { showToast('表示名を入力してください'); return; }
   const birthYear = parseInt(window._ddYear?.getValue()) || null;
   const birthMonth = parseInt(window._ddMonth?.getValue()) || null;
-  const birthDay = parseInt(document.getElementById('set-birth-day').value) || null;
+  const birthDay = parseInt(window._ddDay?.getValue()) || null;
   if (birthDay && (birthDay < 1 || birthDay > 31)) { showToast('日は1〜31で入力してください'); return; }
   const update = { display_name: name, bio, birth_year: birthYear, birth_month: birthMonth, birth_day: birthDay };
   const avatarFile = document.getElementById('avatar-file').files[0];
