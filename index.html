@@ -225,12 +225,23 @@ body { font-family: 'Hiragino Sans', 'Yu Gothic UI', sans-serif; background: var
 .water-btn { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-3); border: 1px solid var(--border); border-radius: 999px; padding: 5px 12px; cursor: pointer; background: none; transition: all 0.15s; }
 .water-btn:hover { border-color: var(--sky-deep); color: #2196F3; background: var(--sky); }
 
-/* ===== CUSTOM SELECT ===== */
-.custom-select-wrapper { position: relative; }
-.custom-select { appearance: none; -webkit-appearance: none; width: 100%; border: 1.5px solid var(--border); border-radius: 8px; padding: 10px 36px 10px 12px; font-size: 15px; font-family: inherit; color: var(--text); background: var(--surface); outline: none; cursor: pointer; transition: border-color 0.15s; }
-.custom-select:focus { border-color: var(--green-400); }
-.custom-select-arrow { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); pointer-events: none; color: var(--text-3); }
-.custom-select-arrow svg { width: 16px; height: 16px; display: block; }
+/* ===== CUSTOM DROPDOWN (select廃止・完全独自実装) ===== */
+.kd-wrapper { position: relative; user-select: none; }
+.kd-trigger { display: flex; align-items: center; justify-content: space-between; gap: 8px; border: 1.5px solid var(--border); border-radius: 999px; padding: 10px 16px; font-size: 15px; font-family: inherit; color: var(--text); background: var(--surface); cursor: pointer; transition: border-color 0.15s, box-shadow 0.15s; }
+.kd-trigger:hover { border-color: var(--green-400); }
+.kd-trigger.open { border-color: var(--green-400); box-shadow: 0 0 0 3px rgba(45,138,78,0.12); }
+.kd-trigger-text { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.kd-trigger-text.placeholder { color: var(--text-3); }
+.kd-arrow { width: 16px; height: 16px; color: var(--text-3); flex-shrink: 0; transition: transform 0.2s; }
+.kd-trigger.open .kd-arrow { transform: rotate(180deg); }
+.kd-menu { position: absolute; top: calc(100% + 6px); left: 0; right: 0; background: var(--surface); border: 1.5px solid var(--border); border-radius: 16px; box-shadow: 0 8px 24px rgba(0,0,0,0.12); z-index: 200; max-height: 220px; overflow-y: auto; scrollbar-width: thin; display: none; padding: 4px; }
+.kd-menu.open { display: block; animation: kd-in 0.12s ease; }
+@keyframes kd-in { from { opacity:0; transform:translateY(-4px) } to { opacity:1; transform:translateY(0) } }
+.kd-option { padding: 10px 14px; font-size: 14px; cursor: pointer; color: var(--text); border-radius: 10px; transition: background 0.1s; }
+.kd-option:hover { background: var(--green-50); color: var(--green-600); }
+.kd-option.selected { background: var(--green-50); color: var(--green-600); font-weight: 600; }
+.kd-option.disabled { color: var(--text-3); cursor: default; font-size: 12px; padding: 6px 14px; border-radius: 10px; }
+.kd-option.disabled:hover { background: none; color: var(--text-3); }
 
 /* ===== CUSTOM FILE INPUT ===== */
 .file-input-wrapper { position: relative; }
@@ -457,7 +468,7 @@ body { font-family: 'Hiragino Sans', 'Yu Gothic UI', sans-serif; background: var
 // CONFIG — ここを自分のSupabase情報に書き換えてください
 // ===================================================
 const SUPABASE_URL = 'https://mxmyljeuzkuvomasfqnr.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im14bXlsamV1emt1dm9tYXNmcW5yIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI1MzgyNDUsImV4cCI6MjA5ODExNDI0NX0.L5nXyJ4DbCMOStMc7mj77po9cgUMmsZ0aNQD2ICMb-4';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im14bXlsamV1emt1dm9tYXNmcW5yIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI1MzgyNDUsImV4cCI6MjA5ODExNDI0NX0.L5nXyJ4DbCMOStMc7mj77po9cgUMmsZ0aNQD2ICMb-4Y';
 // ===================================================
 
 const { createClient } = supabase;
@@ -489,6 +500,68 @@ function kibunConfirm({ icon = '🌿', title, message, okLabel = 'OK', danger = 
     document.getElementById('kibun-dialog-ok').addEventListener('click', () => close(true));
     document.getElementById('kibun-dialog-cancel').addEventListener('click', () => close(false));
   });
+}
+
+// ===== CUSTOM DROPDOWN =====
+// createDropdown(containerId, options, placeholder, selectedValue)
+// options: [{value, label}]
+// returns { getValue, setValue }
+function createDropdown(containerId, options, placeholder, selectedValue) {
+  const wrapper = document.getElementById(containerId);
+  if (!wrapper) return;
+  wrapper.innerHTML = '';
+  wrapper.className = 'kd-wrapper';
+
+  let current = selectedValue !== undefined && selectedValue !== null ? String(selectedValue) : '';
+
+  const trigger = document.createElement('div');
+  trigger.className = 'kd-trigger';
+  const triggerText = document.createElement('span');
+  triggerText.className = 'kd-trigger-text' + (current ? '' : ' placeholder');
+  triggerText.textContent = current ? (options.find(o => String(o.value) === current)?.label || placeholder) : placeholder;
+  const arrow = document.createElementNS('http://www.w3.org/2000/svg','svg');
+  arrow.setAttribute('viewBox','0 0 24 24'); arrow.setAttribute('fill','none');
+  arrow.setAttribute('stroke','currentColor'); arrow.setAttribute('stroke-width','2');
+  arrow.classList.add('kd-arrow');
+  arrow.innerHTML = '<polyline points="6 9 12 15 18 9"/>';
+  trigger.appendChild(triggerText); trigger.appendChild(arrow);
+
+  const menu = document.createElement('div');
+  menu.className = 'kd-menu';
+
+  options.forEach(opt => {
+    const item = document.createElement('div');
+    item.className = 'kd-option' + (opt.disabled ? ' disabled' : '') + (String(opt.value) === current ? ' selected' : '');
+    item.textContent = opt.label;
+    if (!opt.disabled) {
+      item.addEventListener('click', e => {
+        e.stopPropagation();
+        current = String(opt.value);
+        triggerText.textContent = opt.label;
+        triggerText.classList.remove('placeholder');
+        menu.querySelectorAll('.kd-option').forEach(el => el.classList.remove('selected'));
+        item.classList.add('selected');
+        close();
+      });
+    }
+    menu.appendChild(item);
+  });
+
+  wrapper.appendChild(trigger); wrapper.appendChild(menu);
+
+  const open = () => { trigger.classList.add('open'); menu.classList.add('open'); };
+  const close = () => { trigger.classList.remove('open'); menu.classList.remove('open'); };
+  trigger.addEventListener('click', e => { e.stopPropagation(); trigger.classList.contains('open') ? close() : open(); });
+  document.addEventListener('click', close);
+
+  return {
+    getValue: () => current,
+    setValue: (v) => {
+      current = String(v);
+      const opt = options.find(o => String(o.value) === current);
+      if (opt) { triggerText.textContent = opt.label; triggerText.classList.remove('placeholder'); }
+    }
+  };
 }
 
 // ===== INIT =====
@@ -824,12 +897,18 @@ async function loadTimeline(reset = false) {
 
   if (posts.length < TIMELINE_PAGE_SIZE) timelineAllLoaded = true;
 
-  let likes = {};
+  // いいね済みチェック
+  let likedSet = {};
   if (currentUser) {
     const { data: likeData } = await db.from('likes').select('post_id').eq('user_id', currentUser.id).in('post_id', posts.map(p => p.id));
-    (likeData || []).forEach(l => likes[l.post_id] = true);
+    (likeData || []).forEach(l => likedSet[l.post_id] = true);
   }
-  el.insertAdjacentHTML('beforeend', posts.map(p => postCardHTML(p, likes[p.id])).join(''));
+  // いいね数を一括取得
+  const { data: likeCounts } = await db.from('likes').select('post_id').in('post_id', posts.map(p => p.id));
+  const countMap = {};
+  (likeCounts || []).forEach(l => { countMap[l.post_id] = (countMap[l.post_id] || 0) + 1; });
+
+  el.insertAdjacentHTML('beforeend', posts.map(p => postCardHTML(p, likedSet[p.id], countMap[p.id] || 0)).join(''));
   timelinePage++;
   timelineLoading = false;
 }
@@ -843,9 +922,10 @@ function setupTimelineScroll() {
   observer.observe(sentinel);
 }
 
-function postCardHTML(p, liked) {
+function postCardHTML(p, liked, likeCount) {
   const user = p.user || {};
   const lv = user.tree_level || 1;
+  const count = likeCount !== undefined ? likeCount : (p._likeCount || 0);
   return `<div class="post-card" id="post-${p.id}">
     <div onclick="navigate('profile','${esc(user.id)}')" style="cursor:pointer">${avatarHTML(user, 44)}</div>
     <div class="post-body">
@@ -860,7 +940,7 @@ function postCardHTML(p, liked) {
       <div class="post-actions">
         <button class="post-action ${liked ? 'liked' : ''}" onclick="toggleLike('${p.id}','${esc(user.id)}',this)">
           <svg viewBox="0 0 24 24" fill="${liked ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/></svg>
-          <span id="like-count-${p.id}">0</span>
+          <span id="like-count-${p.id}">${count}</span>
         </button>
         ${currentUser && currentUser.id !== user.id ? `<button class="post-action" onclick="openDMTo('${esc(user.id)}')">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
@@ -873,14 +953,13 @@ function postCardHTML(p, liked) {
   </div>`;
 }
 
-// いいね数を後から取得（初期レンダリング後）
-document.addEventListener('click', () => {}); // 初期化
-async function loadLikeCounts(postIds) {
-  for (const id of postIds) {
-    const { count } = await db.from('likes').select('*', { count: 'exact', head: true }).eq('post_id', id);
-    const el = document.getElementById('like-count-' + id);
-    if (el) el.textContent = count || 0;
-  }
+// ===== LIKE COUNTS (profile pages) =====
+async function enrichWithLikeCounts(posts) {
+  if (!posts || posts.length === 0) return posts;
+  const { data: likeCounts } = await db.from('likes').select('post_id').in('post_id', posts.map(p => p.id));
+  const countMap = {};
+  (likeCounts || []).forEach(l => { countMap[l.post_id] = (countMap[l.post_id] || 0) + 1; });
+  return posts.map(p => ({ ...p, _likeCount: countMap[p.id] || 0 }));
 }
 
 async function toggleLike(postId, postUserId, btn) {
@@ -1030,28 +1109,31 @@ async function switchProfileTab(tab, uid) {
 }
 
 async function loadProfilePosts(uid) {
-  const { data: posts } = await db.from('posts').select('*, user:users!posts_user_id_fkey(id,display_name,avatar_url,is_verified,tree_level)').eq('user_id', uid).order('created_at', { ascending: false }).limit(50);
+  let { data: posts } = await db.from('posts').select('*, user:users!posts_user_id_fkey(id,display_name,avatar_url,is_verified,tree_level)').eq('user_id', uid).order('created_at', { ascending: false }).limit(50);
   const el = document.getElementById('profile-posts');
   if (!posts || posts.length === 0) { el.innerHTML = '<div class="empty"><div class="empty-icon">📝</div><p>まだ投稿がありません</p></div>'; return; }
-  let likes = {};
+  posts = await enrichWithLikeCounts(posts);
+  let likedSet = {};
   if (currentUser) {
     const { data: likeData } = await db.from('likes').select('post_id').eq('user_id', currentUser.id).in('post_id', posts.map(p => p.id));
-    (likeData || []).forEach(l => likes[l.post_id] = true);
+    (likeData || []).forEach(l => likedSet[l.post_id] = true);
   }
-  el.innerHTML = posts.map(p => postCardHTML(p, likes[p.id])).join('');
+  el.innerHTML = posts.map(p => postCardHTML(p, likedSet[p.id])).join('');
 }
 
 async function loadProfileLikes(uid) {
   const { data: likeRecs } = await db.from('likes').select('post_id').eq('user_id', uid).order('created_at', { ascending: false }).limit(50);
   const el = document.getElementById('profile-posts');
   if (!likeRecs || likeRecs.length === 0) { el.innerHTML = '<div class="empty"><div class="empty-icon">💚</div><p>いいねした投稿がありません</p></div>'; return; }
-  const { data: posts } = await db.from('posts').select('*, user:users!posts_user_id_fkey(id,display_name,avatar_url,is_verified)').in('id', likeRecs.map(l => l.post_id));
-  let likes = {};
+  let { data: posts } = await db.from('posts').select('*, user:users!posts_user_id_fkey(id,display_name,avatar_url,is_verified,tree_level)').in('id', likeRecs.map(l => l.post_id));
+  if (!posts) { el.innerHTML = '<div class="empty"><div class="empty-icon">💚</div><p>いいねした投稿がありません</p></div>'; return; }
+  posts = await enrichWithLikeCounts(posts);
+  let likedSet = {};
   if (currentUser) {
-    const { data: likeData } = await db.from('likes').select('post_id').eq('user_id', currentUser.id).in('post_id', (posts||[]).map(p => p.id));
-    (likeData || []).forEach(l => likes[l.post_id] = true);
+    const { data: likeData } = await db.from('likes').select('post_id').eq('user_id', currentUser.id).in('post_id', posts.map(p => p.id));
+    (likeData || []).forEach(l => likedSet[l.post_id] = true);
   }
-  el.innerHTML = (posts||[]).map(p => postCardHTML(p, likes[p.id])).join('');
+  el.innerHTML = posts.map(p => postCardHTML(p, likedSet[p.id])).join('');
 }
 
 async function toggleFollow(targetId, currentlyFollowing) {
@@ -1252,15 +1334,9 @@ function renderSettings() {
         <div class="field">
           <label>生年月日</label>
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-            <div class="custom-select-wrapper" style="flex:2;min-width:100px">
-              <select class="custom-select" id="set-birth-year"><option value="">年</option></select>
-              <span class="custom-select-arrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg></span>
-            </div>
-            <div class="custom-select-wrapper" style="flex:1;min-width:80px">
-              <select class="custom-select" id="set-birth-month"><option value="">月</option></select>
-              <span class="custom-select-arrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg></span>
-            </div>
-            <input type="number" id="set-birth-day" min="1" max="31" placeholder="日" value="${currentUser.birth_day || ''}" style="flex:1;min-width:64px;border:1.5px solid var(--border);border-radius:8px;padding:10px 12px;font-size:15px;font-family:inherit;color:var(--text);background:var(--surface);outline:none;transition:border-color 0.15s">
+            <div id="dd-birth-year" style="flex:2;min-width:110px"></div>
+            <div id="dd-birth-month" style="flex:1;min-width:80px"></div>
+            <input type="number" id="set-birth-day" min="1" max="31" placeholder="日" value="${currentUser.birth_day || ''}" style="flex:1;min-width:64px;border:1.5px solid var(--border);border-radius:10px;padding:10px 12px;font-size:15px;font-family:inherit;color:var(--text);background:var(--surface);outline:none;transition:border-color 0.15s">
           </div>
           <div class="hint">プロフィールに表示されます（任意）</div>
         </div>
@@ -1323,22 +1399,19 @@ function renderSettings() {
       </div>
     </div>
   `;
-  // プルダウンをJSで生成（テンプレートリテラル内ループを避けるため）
+  // プルダウンを完全カスタムドロップダウンで生成
   const currentYear = new Date().getFullYear();
-  const yearSel = document.getElementById('set-birth-year');
-  for (let y = currentYear; y >= currentYear - 100; y--) {
-    const opt = document.createElement('option');
-    opt.value = y; opt.textContent = y + '年';
-    if (currentUser.birth_year == y) opt.selected = true;
-    yearSel.appendChild(opt);
-  }
-  const monthSel = document.getElementById('set-birth-month');
-  for (let m = 1; m <= 12; m++) {
-    const opt = document.createElement('option');
-    opt.value = m; opt.textContent = m + '月';
-    if (currentUser.birth_month == m) opt.selected = true;
-    monthSel.appendChild(opt);
-  }
+  const yearOptions = [{ value: '', label: '年を選択', disabled: true }];
+  for (let y = currentYear; y >= currentYear - 100; y--) yearOptions.push({ value: y, label: y + '年' });
+  const ddYear = createDropdown('dd-birth-year', yearOptions, '年を選択', currentUser.birth_year || '');
+
+  const monthOptions = [{ value: '', label: '月を選択', disabled: true }];
+  for (let m = 1; m <= 12; m++) monthOptions.push({ value: m, label: m + '月' });
+  const ddMonth = createDropdown('dd-birth-month', monthOptions, '月を選択', currentUser.birth_month || '');
+
+  // saveProfile時に参照できるようグローバルに保持
+  window._ddYear = ddYear;
+  window._ddMonth = ddMonth;
   loadBlockList();
 }
 
@@ -1396,8 +1469,8 @@ async function saveProfile() {
   const name = document.getElementById('set-name').value.trim();
   const bio = document.getElementById('set-bio').value.trim();
   if (!name) { showToast('表示名を入力してください'); return; }
-  const birthYear = parseInt(document.getElementById('set-birth-year').value) || null;
-  const birthMonth = parseInt(document.getElementById('set-birth-month').value) || null;
+  const birthYear = parseInt(window._ddYear?.getValue()) || null;
+  const birthMonth = parseInt(window._ddMonth?.getValue()) || null;
   const birthDay = parseInt(document.getElementById('set-birth-day').value) || null;
   if (birthDay && (birthDay < 1 || birthDay > 31)) { showToast('日は1〜31で入力してください'); return; }
   const update = { display_name: name, bio, birth_year: birthYear, birth_month: birthMonth, birth_day: birthDay };
